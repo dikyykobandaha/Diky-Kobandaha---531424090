@@ -1,0 +1,38 @@
+{
+  "name": "eventflow",
+  "version": "1.0.0",
+  "description": "EventFlow - Sistem manajemen acara dan penjadwalan proyek (multi-pengguna, organisasi, tugas, Gantt, PERT, CPM)",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n FRONTEND,BACKEND -c blue,brightyellow \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "npm run dev --prefix backend",
+    "build": "npm run build --prefix frontend && npm run build --prefix backend",
+    "build:frontend": "npm run build --prefix frontend",
+    "build:backend": "npm run build --prefix backend",
+    "start": "npm run start --prefix backend",
+    "start:backend": "npm run start --prefix backend",
+    "test": "concurrently -n FRONTEND-TEST,BACKEND-TEST -c blue,brightyellow \"npm run test --prefix frontend\" \"npm run test --prefix backend\"",
+    "test:frontend": "npm run test --prefix frontend",
+    "test:backend": "npm run test --prefix backend",
+    "test:backend:coverage": "npm run test:coverage --prefix backend",
+    "db:generate": "npm run db:generate --prefix backend",
+    "db:migrate": "npm run db:migrate --prefix backend",
+    "db:migrate:dev": "npm run db:migrate:dev --prefix backend",
+    "db:push": "npm run db:push --prefix backend",
+    "db:seed": "npm run db:seed --prefix backend",
+    "db:studio": "npm run db:studio --prefix backend",
+    "db:reset": "npm run db:reset --prefix backend",
+    "db:check": "npm run db:check --prefix backend",
+    "db:destroy": "npm run db:destroy --prefix backend",
+    "lint": "npm run lint --prefix frontend && npm run lint --prefix backend",
+    "prepare": "cd backend && npm pkg set scripts.prepare=\"prisma generate\" 2>/dev/null || true"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prisma": "^5.22.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0"
+  }
+}

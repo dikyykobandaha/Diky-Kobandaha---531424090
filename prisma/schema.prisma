@@ -1,0 +1,333 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================================================
+// User
+// ===========================================================================
+
+model User {
+  id             String    @id @default(uuid())
+  name           String
+  email          String    @unique
+  passwordHash   String
+  emailVerified  DateTime?
+  role           String?   @default("member") // "owner" | "admin" | "member"
+  memberships    OrganizationMembership[]
+  invitationsSent Invitation[] @relation("InvitationsSent")
+  ownedEvents    Event[]        @relation("EventOwner")
+  assignedTasks  Task[]         @relation("AssigneeTask")
+  assignedTaskMemberships TaskMember[]
+  resource       Resource?
+  sessions       Session[]
+  activities     Activity[]
+  ownedOrganizations Organization[] @relation("OrganizationOwner")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([email])
+}
+
+// ===========================================================================
+// Organization
+// ===========================================================================
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  code        String?  @unique // kode undangan default/unik organisasi
+  ownerId     String
+  owner       User     @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships OrganizationMembership[]
+  invitations Invitation[]
+  events      Event[]
+  workCalendars WorkCalendar[]
+  resources   Resource[]
+  activities  Activity[]
+
+  @@index([ownerId])
+}
+
+// ===========================================================================
+// OrganizationMembership
+// ===========================================================================
+
+model OrganizationMembership {
+  id             String       @id @default(uuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           String       @default("member") // "owner" | "admin" | "member"
+  joinedAt       DateTime     @default(now())
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+// ===========================================================================
+// Invitation
+// ===========================================================================
+
+model Invitation {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  code           String       @unique
+  role           String       @default("member") // "admin" | "member"
+  invitedBy      String
+  invitedByUser  User         @relation("InvitationsSent", fields: [invitedBy], references: [id])
+  invitedEmail   String       // email penerima untuk referensi (tidak wajib ada user)
+  invitedByName  String?
+  expiresAt      DateTime?
+  usedAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([code])
+}
+
+// ===========================================================================
+// Event (Acara)
+// ===========================================================================
+
+model Event {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  location    String?
+  startDate   DateTime
+  endDate     DateTime?
+  status      String        @default("planning") // planning|preparation|running|finished|cancelled
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ownerId     String
+  owner       User          @relation("EventOwner", fields: [ownerId], references: [id])
+  memberIds   String?       // JSON array id anggota panitia (opsional)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tasks       Task[]
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([startDate])
+}
+
+// ===========================================================================
+// WorkCalendar (kalender kerja organisasi)
+// ===========================================================================
+
+model WorkCalendar {
+  id            String   @id @default(uuid())
+  name          String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workingDays   String // JSON array index hari kerja [1,2,3,4,5] -> Senin..Jumat
+  timezone      String?  @default("Asia/Jakarta")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  holidays      Holiday[]
+
+  @@index([organizationId])
+}
+
+// ===========================================================================
+// Holiday (hari libur)
+// ===========================================================================
+
+model Holiday {
+  id          String       @id @default(uuid())
+  calendarId  String
+  calendar    WorkCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  name        String
+  date        DateTime     // hanya tanggal (waktu diabaikan)
+  createdAt   DateTime     @default(now())
+
+  @@unique([calendarId, date])
+  @@index([calendarId])
+}
+
+// ===========================================================================
+// Task (Tugas) — support hierarki rekursif
+// ===========================================================================
+
+model Task {
+  id                 String    @id @default(uuid())
+  title              String
+  description        String?
+  eventId            String
+  event              Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  parentId           String?
+  parent             Task?     @relation("Subtasks", fields: [parentId], references: [id])
+  children           Task[]    @relation("Subtasks")
+  startDate          DateTime?
+  startHour          Int?
+  startMinute        Int?
+  durationDays       Int       @default(1) // durasi dalam hari kerja
+  priority           String    @default("medium") // low|medium|high|urgent
+  status             String    @default("not_started") // not_started|in_progress|delayed|done|cancelled
+  progress           Int       @default(0) // 0..100
+  isMilestone        Boolean   @default(false)
+  endDate            DateTime? // tanggal selesai (dihitung dari startDate + durationDays hari kerja)
+  assigneeId         String?
+  assignee           User?     @relation("AssigneeTask", fields: [assigneeId], references: [id])
+  assigneeIds        String?   // JSON array id anggota ditugaskan (beberapa)
+  estimatedCost      Float?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  dependenciesFrom   TaskDependency[] @relation("TaskDependencyPredecessor")
+  dependenciesTo     TaskDependency[] @relation("TaskDependencySuccessor")
+  taskMembers        TaskMember[]
+  resourceAssignments ResourceAssignment[]
+
+  @@index([eventId])
+  @@index([parentId])
+  @@index([assigneeId])
+  @@index([startDate])
+  @@index([status])
+}
+
+// ===========================================================================
+// TaskDependency (Finish-to-Start / Start-to-Start + lag)
+// ===========================================================================
+
+model TaskDependency {
+  id              String    @id @default(uuid())
+  taskId          String
+  task            Task      @relation("TaskDependencySuccessor", fields: [taskId], references: [id], onDelete: Cascade)
+  predecessorId   String
+  predecessor     Task      @relation("TaskDependencyPredecessor", fields: [predecessorId], references: [id], onDelete: Cascade)
+  type            String    @default("FS") // FS|SS
+  lagWorkDays     Int       @default(0) // lag dalam hari kerja
+  createdAt       DateTime  @default(now())
+
+  @@unique([taskId, predecessorId, type])
+  @@index([taskId])
+  @@index([predecessorId])
+}
+
+// ===========================================================================
+// Resource (Sumber daya / anggota sumber daya)
+// ===========================================================================
+
+model Resource {
+  id             String          @id @default(uuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  email          String?
+  phone          String?
+  role           String?
+  availability   String?
+  rate           Float?
+  notes          String?
+  userId         String? @unique
+  user           User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  assignments    ResourceAssignment[]
+  leavePeriods   LeavePeriod[]
+
+  @@index([organizationId])
+  @@index([userId])
+}
+
+// ===========================================================================
+// TaskMember (penugasan anggota ke tugas — utama)
+// ===========================================================================
+
+model TaskMember {
+  id        String    @id @default(uuid())
+  taskId    String
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+}
+
+// ===========================================================================
+// ResourceAssignment (penugasan resource ke tugas — alternatif/summary)
+// ===========================================================================
+
+model ResourceAssignment {
+  id        String    @id @default(uuid())
+  resourceId String
+  resource  Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  taskId    String
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+
+  @@unique([resourceId, taskId])
+  @@index([resourceId])
+  @@index([taskId])
+}
+
+// ===========================================================================
+// LeavePeriod (periode ketidakhadiran anggota)
+// ===========================================================================
+
+model LeavePeriod {
+  id         String    @id @default(uuid())
+  resourceId String
+  resource   Resource  @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  name       String
+  startDate  DateTime
+  endDate    DateTime
+  createdAt  DateTime  @default(now())
+
+  @@index([resourceId])
+}
+
+// ===========================================================================
+// Session (sesi autentikasi)
+// ===========================================================================
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ===========================================================================
+// Activity (aktivitas terbaru di dashboard)
+// ===========================================================================
+
+model Activity {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  type        String    // e.g., "task_created", "task_updated", "event_created", "member_joined"
+  description String
+  entityId    String?   // id entitas terkait (tugas/acara/dll.)
+  entityName  String?
+  metadata    String?   // JSON opsional
+  createdAt   DateTime  @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([createdAt])
+}
